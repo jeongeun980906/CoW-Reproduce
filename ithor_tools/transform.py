@@ -25,8 +25,8 @@ def normalize(x: np.ndarray) -> np.ndarray:
 
 class attn2map():
     def __init__(self,metric_map):
-        self.metric_map = metric_map
-        self.new_map = np.zeros_like(metric_map)
+        self.new_map = 1- np.expand_dims(copy.deepcopy(metric_map),axis=-1)
+        self.new_map = np.repeat(self.new_map,3,axis=-1)
         width = 800
         height = 800
         fov = 60
@@ -94,20 +94,16 @@ class attn2map():
             pos = dict(x=pos[2],y=pos[1],z=pos[0])
             pos = scenemap.xyz2grid(pos)
 
-            self.new_map[pos[0],pos[1]] = voxel['color']
+            self.new_map[pos[0],pos[1],2] = voxel['color']
         
         new_map = copy.deepcopy(self.new_map)
         new_map = np.rot90(new_map)
 
-        map = copy.deepcopy(self.metric_map)
-        map = np.rot90(map)
-        plt.figure(figsize=(10,5))
-        plt.subplot(1,2,1)
+        plt.figure()
         plt.imshow(new_map)
-        plt.subplot(1,2,2)
-        plt.imshow(map)
-        plt.plot()
-        del new_map,map
+        plt.axis("off")
+        plt.show()
+        del new_map
     
     def reset(self):
         self.new_map = np.zeros_like(self.metric_map)
