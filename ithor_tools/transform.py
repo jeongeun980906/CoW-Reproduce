@@ -25,6 +25,7 @@ def normalize(x: np.ndarray) -> np.ndarray:
 
 class attn2map():
     def __init__(self,metric_map):
+        self.metric_map = copy.deepcopy(metric_map)
         self.new_map = 1- np.expand_dims(copy.deepcopy(metric_map),axis=-1)
         self.new_map = np.repeat(self.new_map,3,axis=-1)
         width = 800
@@ -106,4 +107,5 @@ class attn2map():
         del new_map
     
     def reset(self):
-        self.new_map = np.zeros_like(self.metric_map)
+        self.new_map = 1- np.expand_dims(copy.deepcopy(self.metric_map),axis=-1)
+        self.new_map = np.repeat(self.new_map,3,axis=-1)
