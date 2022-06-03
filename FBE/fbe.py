@@ -41,7 +41,7 @@ class gridmap():
         self.map = np.ones((w_quan,h_quan,3))/2
         width = 800
         height = 800
-        fov = 60
+        fov = 90
         self.width = width
         self.height = height
         # camera intrinsics

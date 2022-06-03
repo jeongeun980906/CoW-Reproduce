@@ -6,6 +6,11 @@ import matplotlib.pyplot as plt
 from skimage.transform import resize
 import copy
 
+def ndarray(list):
+    array = np.array(list)
+    return array
+
+
 def cornerpoint_projection(cornerpoints):
     res = []
     for e,c in enumerate(cornerpoints):
@@ -30,7 +35,7 @@ class attn2map():
         self.new_map = np.repeat(self.new_map,3,axis=-1)
         width = 800
         height = 800
-        fov = 60
+        fov = 90
         self.width = width
         self.height = height
         # camera intrinsics
@@ -43,7 +48,7 @@ class attn2map():
         DEPTH = controller.last_event.depth_frame
         COLOR = controller.last_event.frame
 
-        attn = 10*attn.astype(np.float32)
+        attn = 15*attn.astype(np.float32)
         attn = np.clip(attn,0,1)
 
         depth = o3d.geometry.Image(DEPTH)
@@ -86,7 +91,7 @@ class attn2map():
         if rot == 270:
             return np.flip(res,axis=0)
 
-    def transform(self,attn,controller,scenemap):
+    def transform(self,attn,controller,scenemap,vis=True):
         agent_pos = controller.last_event.metadata['agent']['position']
         agent_rot = controller.last_event.metadata['agent']['rotation']['y']
         res,vpos = self.get_projection(controller,attn,agent_pos,agent_rot)
@@ -94,17 +99,19 @@ class attn2map():
             pos = voxel['pos']
             pos = dict(x=pos[2],y=pos[1],z=pos[0])
             pos = scenemap.xyz2grid(pos)
+            color = (voxel['color']-0.75)/0.25 # 0~1
+            self.new_map[pos[0],pos[1]] = [color,(color*(1-color))/2,1- color]
+        if vis:
+            new_map = copy.deepcopy(self.new_map)
+            new_map = np.rot90(new_map)
 
-            self.new_map[pos[0],pos[1],2] = voxel['color']
-        
-        new_map = copy.deepcopy(self.new_map)
-        new_map = np.rot90(new_map)
-
-        plt.figure()
-        plt.imshow(new_map)
-        plt.axis("off")
-        plt.show()
-        del new_map
+            plt.figure()
+            plt.imshow(new_map)
+            plt.axis("off")
+            plt.show()
+            del new_map
+        if len(vpos)>0:
+            return True
     
     def reset(self):
         self.new_map = 1- np.expand_dims(copy.deepcopy(self.metric_map),axis=-1)

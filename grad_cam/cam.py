@@ -40,35 +40,41 @@ def interpret(image, texts, model, device):
     image_relevance = R[:, 0, 1:]
     return  image_relevance
 
-def show_image_relevance(image_relevance, image, orig_image):
+def show_image_relevance(image_relevance, image, orig_image,visualize=True,store = False,name=None):
   # create heatmap from mask on image
   def show_cam_on_image(img, mask):
       heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)
       heatmap = np.float32(heatmap) / 255
       cam = heatmap + np.float32(img)
-      cam = cam / np.max(cam)
+      cam = cam /np.max(cam)
       return cam
 
   # plt.axis('off')
   # f, axarr = plt.subplots(1,2)
   # axarr[0].imshow(orig_image)
 
-  fig, axs = plt.subplots(1, 2)
-  axs[0].imshow(orig_image)
-  axs[0].axis('off')
-
   image_relevance = image_relevance.reshape(1, 1, 7, 7)
   image_relevance = torch.nn.functional.interpolate(image_relevance, size=224, mode='bilinear')
-  image_relevance = image_relevance.reshape(224, 224).cuda().data.cpu().numpy()
-  image_relevance = (image_relevance - image_relevance.min()) / (image_relevance.max() - image_relevance.min())
+  image_relevance = 15* image_relevance.reshape(224, 224).cuda().data.cpu().numpy()
+#   image_relevance = (image_relevance - image_relevance.min()) / (image_relevance.max() - image_relevance.min())
   image = image[0].permute(1, 2, 0).data.cpu().numpy()
   image = (image - image.min()) / (image.max() - image.min())
   vis = show_cam_on_image(image, image_relevance)
   vis = np.uint8(255 * vis)
   vis = cv2.cvtColor(np.array(vis), cv2.COLOR_RGB2BGR)
   # axar[1].imshow(vis)
-  axs[1].imshow(vis)
-  axs[1].axis('off')
+  if visualize:
+    plt.figure()
+    fig, axs = plt.subplots(1, 2)
+    axs[0].imshow(orig_image)
+    axs[0].axis('off')
+    axs[1].imshow(vis)
+    axs[1].axis('off')
+    if store:
+        plt.savefig('./res/{}.png'.format(name))
+    else:
+        plt.show()
+
   # plt.imshow(vis)
   return image_relevance
 
@@ -85,14 +91,14 @@ class clip_grad_cam():
     def set_text(self,text):
         self.text = clip.tokenize([text]).to(self.device)
     
-    def run(self,img):
+    def run(self,img,vis=True,store = False,name=None):
         shape_temp = img.shape[0]
         img_pil = Image.fromarray(img)
         img = self.preprocess(img_pil).unsqueeze(0).to(self.device)
         R_image = interpret(model=self.model, image=img, texts=self.text, device=self.device)
-        image_relevance = show_image_relevance(R_image[0], img, orig_image=img_pil)
+        image_relevance = show_image_relevance(R_image[0], img, orig_image=img_pil,visualize=vis,store=store,name=name)
 
         R_image = R_image.reshape(1,1,7,7)
         R_image = torch.nn.functional.interpolate(R_image, size=shape_temp, mode='bilinear')
-        print(R_image.shape)
+        # print(R_image.shape)
         return R_image[0][0].cpu().numpy(),image_relevance

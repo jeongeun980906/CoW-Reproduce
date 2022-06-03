@@ -28,7 +28,8 @@ def getAttMap(img, attn_map, blur=True):
 def viz_attn(img, attn_map, blur=True):
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
     axes[0].imshow(img)
-    axes[1].imshow(getAttMap(img, attn_map, blur))
+    axes[1].imshow(attn_map*15)
+    # axes[1].imshow(getAttMap(img, attn_map, blur))
     for ax in axes:
         ax.axis("off")
     plt.show()
