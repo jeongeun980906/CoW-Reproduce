@@ -11,11 +11,14 @@ def to_rad(th):
     return th*math.pi / 180
     
 class gridmap():
-    def __init__(self,controller,scenebound,stepsize=0.1):
+    def __init__(self,controller,scenebound,clip_gradcam,proj,scenemap,stepsize=0.1):
         '''
         All of the unknown first
         '''
         self.controller = controller
+        self.clip_gradcam = clip_gradcam
+        self.proj = proj
+        self.scenemap = scenemap
         self.robot_size = 5
         scenebound = np.asarray(scenebound)
         x_max, z_max = np.max(scenebound,axis=0)
@@ -50,7 +53,17 @@ class gridmap():
         fx, fy, cx, cy = (focal_length,focal_length, width/2, height/2)
         self.intrinsic = o3d.camera.PinholeCameraIntrinsic(width, height, 
                                 fx, fy, cx, cy)
-                                
+
+    def step_local_search(self):
+        # for i in range(6):
+        #     controller.step(
+        #         action = 'RotateRight', degrees = 60
+        #     )
+        img= self.controller.last_event.frame
+        attn,_ = self.clip_gradcam.run(img,vis=False)
+        find = self.proj.transform(attn,self.scenemap,vis=False)
+        del attn, img
+        return find       
     def reset(self):
         self.map = np.ones((self.w_quan,self.h_quan,3))/2
 
@@ -104,13 +117,13 @@ class gridmap():
         del voxel_grid,voxels,pcd
         return temp_map,[self.xyz2grid(min_bound),self.xyz2grid(max_bound)]
 
-    def scan_full(self,clip_gradcam,proj,scenemap,query_object_ID):
+    def scan_full(self,query_object_ID):
         pos = self.controller.last_event.metadata['agent']['position']
         bounds = []
         temp_map = np.ones((self.w_quan,self.h_quan,3))/2
         grid_pos = self.xyz2grid(pos)
         temp_map, bound = self.scan_single(temp_map)
-        find = step_local_search(self.controller,clip_gradcam,proj,scenemap)
+        find = step_local_search(self.controller,self.clip_gradcam,self.proj,self.scenemap)
         gt_find = check_vis(self.controller,query_object_ID,False)
         if gt_find:
             return temp_map,gt_find,find
@@ -121,7 +134,7 @@ class gridmap():
                     action="RotateRight",degrees = 60
                 )
             temp_map,bound = self.scan_single(temp_map)
-            find = step_local_search(self.controller,clip_gradcam,proj,scenemap)
+            find = step_local_search(self.controller,self.clip_gradcam,self.proj,self.scenemap)
             gt_find = check_vis(self.controller,query_object_ID,False)
             if gt_find:
                 return temp_map,gt_find,find
