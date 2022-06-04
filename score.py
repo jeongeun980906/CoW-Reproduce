@@ -119,8 +119,10 @@ for scene_name in scene_names:
             gt_find,sucess,path_len, reset_map  = step_frontier(fbe,rrtplanner,controller,query_object)
             total_path_len += path_len
             if reset_map:
-                proj.reset()
+                # proj.reset()
                 fbe.reset()
+            if total_path_len>50:
+                break
         SPL = sucess*min_length/total_path_len
         ST.append(SPL,query_object_name,scene_name)
         ST.save_json()

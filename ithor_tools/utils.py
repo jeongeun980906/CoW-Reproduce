@@ -43,7 +43,7 @@ def check_vis(controller,query_object_ID,show=False):
         GT_box = [min(temp[1]),min(temp[0]),max(temp[1]),max(temp[0])]
         area = (GT_box[2]-GT_box[0])*(GT_box[3]-GT_box[1])
         # print(area/((instance_segmentation.shape[0]*instance_segmentation.shape[1])))
-        if area>0.01*(instance_segmentation.shape[0]*instance_segmentation.shape[1]):
+        if area>1e-2*(instance_segmentation.shape[0]*instance_segmentation.shape[1]):
             del instance_segmentation,obj_colors
             return True
         else:

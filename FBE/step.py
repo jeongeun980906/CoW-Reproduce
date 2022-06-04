@@ -60,29 +60,18 @@ def step_frontier(fbe,rrtplanner,controller,query_object,clip_gradcam=None,vis=F
                 break
         grid_pos = fbe.xyz2grid(waypoints[indexs[0]])
         fbe.map[grid_pos[0],grid_pos[1]] = [0,0.7,1]
-        if vis:
-            plt.figure()
-            plt.subplot(1,2,1)
-            plt.plot(fbe.map)
-            plt.axis('off')
-            plt.subplot(1,2,2)
-            plt.plot(temp_map)
-            plt.axis('off')
-            plt.plot()
-        fbe.map[grid_cpos[0],grid_cpos[1]] = [1,1,1]
-        fbe.map[grid_pos[0],grid_pos[1]] = [1,1,1]
     else:
         print("Done Exploration")
         return False, False,0, True
     if vis:
         plt.figure()
         plt.subplot(1,2,1)
-        plt.plot(fbe.map)
+        plt.imshow(fbe.map)
         plt.axis('off')
         plt.subplot(1,2,2)
-        plt.plot(temp_map)
+        plt.imshow(temp_map)
         plt.axis('off')
-        plt.plot()
+        plt.show()
     try:
         fbe.map[grid_cpos[0],grid_cpos[1]] = [1,1,1]
         fbe.map[grid_pos[0],grid_pos[1]] = [1,1,1]
