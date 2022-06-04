@@ -5,17 +5,18 @@ import math
 import cv2
 import copy
 from FBE.union import UnionFind
-                
+from ithor_tools.utils import step_local_search,check_vis
+
 def to_rad(th):
     return th*math.pi / 180
     
 class gridmap():
-    def __init__(self,scenebound,stepsize=0.1):
+    def __init__(self,controller,scenebound,stepsize=0.1):
         '''
         All of the unknown first
         '''
-
-        self.robot_size = 4
+        self.controller = controller
+        self.robot_size = 5
         scenebound = np.asarray(scenebound)
         x_max, z_max = np.max(scenebound,axis=0)
         x_min, z_min  = np.min(scenebound,axis=0)
@@ -50,12 +51,14 @@ class gridmap():
         self.intrinsic = o3d.camera.PinholeCameraIntrinsic(width, height, 
                                 fx, fy, cx, cy)
                                 
+    def reset(self):
+        self.map = np.ones((self.w_quan,self.h_quan,3))/2
 
-    def scan_single(self,controller,temp_map):
-        agent_pos = controller.last_event.metadata['agent']['position']
-        agent_rot = controller.last_event.metadata['agent']['rotation']
-        DEPTH = controller.last_event.depth_frame
-        COLOR = controller.last_event.frame
+    def scan_single(self,temp_map):
+        agent_pos = self.controller.last_event.metadata['agent']['position']
+        agent_rot = self.controller.last_event.metadata['agent']['rotation']
+        DEPTH = self.controller.last_event.depth_frame
+        COLOR = self.controller.last_event.frame
         GRAY = (np.sum(COLOR,axis=-1)/(3*255)).astype(np.float32)
         depth = o3d.geometry.Image(DEPTH)
         color = o3d.geometry.Image(GRAY)
@@ -98,23 +101,32 @@ class gridmap():
         # plt.figure()
         # plt.imshow(res)
         # plt.plot()
+        del voxel_grid,voxels,pcd
         return temp_map,[self.xyz2grid(min_bound),self.xyz2grid(max_bound)]
 
-    def scan_full(self,controller):
-        pos = controller.last_event.metadata['agent']['position']
+    def scan_full(self,clip_gradcam,proj,scenemap,query_object_ID):
+        pos = self.controller.last_event.metadata['agent']['position']
         bounds = []
         temp_map = np.ones((self.w_quan,self.h_quan,3))/2
         grid_pos = self.xyz2grid(pos)
-        temp_map, bound = self.scan_single(controller,temp_map)
+        temp_map, bound = self.scan_single(temp_map)
+        find = step_local_search(self.controller,clip_gradcam,proj,scenemap)
+        gt_find = check_vis(self.controller,query_object_ID,False)
+        if gt_find:
+            return temp_map,gt_find,find
         bounds.append(bound)
         temp_map[grid_pos[0],grid_pos[1]] = [1,1,1]
         for _ in range(5):
-            controller.step(
+            self.controller.step(
                     action="RotateRight",degrees = 60
                 )
-            temp_map,bound = self.scan_single(controller,temp_map)
+            temp_map,bound = self.scan_single(temp_map)
+            find = step_local_search(self.controller,clip_gradcam,proj,scenemap)
+            gt_find = check_vis(self.controller,query_object_ID,False)
+            if gt_find:
+                return temp_map,gt_find,find
             bounds.append(bound)
-        controller.step(
+        self.controller.step(
                     action="RotateRight",degrees = 60
                 )
         for i in np.arange(start=-1,stop=1.01,step=0.01):
@@ -139,7 +151,8 @@ class gridmap():
                                 temp_map[i,j] = [1,1,1]
 
         self.merge_map(temp_map)
-        return temp_map
+        del bounds
+        return temp_map,False,False
 
     def frontier_detection(self,cpos):
         img_gray = copy.deepcopy(self.map)
@@ -151,17 +164,29 @@ class gridmap():
         # img_gray_recolor = cv2.resize(img_gray_recolor,None,fx=0.5,fy=0.5,interpolation=cv2.INTER_NEAREST)
         edges = cv2.Canny(img_gray_recolor,20,10)
 
-        frontier_map = np.zeros_like(img_gray)
+        # frontier_map = np.zeros_like(img_gray)
         index = np.where(edges != 0)
         res = []
         for indx in zip(index[0],index[1]):
-            left = self.map[indx[0]-1,indx[1],0]==0
-            right = self.map[indx[0]+1,indx[1],0]==0
-            up = self.map[indx[0],indx[1]+1,0]==0
-            down = self.map[indx[0],indx[1]-1,0] == 0
+            if indx[0]+1<self.map.shape[0]:
+                right = self.map[indx[0]+1,indx[1],0]==0
+            else:
+                right = True
+            if indx[0]>0:
+                left = self.map[indx[0]-1,indx[1],0]==0
+            else:
+                left= True
+            if indx[1]+1 < self.map.shape[1]:
+                up = self.map[indx[0],indx[1]+1,0]==0
+            else:
+                up = True
+            if indx[1]>0:
+                down = self.map[indx[0],indx[1]-1,0] == 0
+            else:
+                down = True
             center = self.map[indx[0],indx[1],0]==0
             if left+right+up+down+center ==0:
-                frontier_map[indx[0],indx[1]]=1
+                # frontier_map[indx[0],indx[1]]=1
                 res.append(indx)
         
         groups = self.groupTPL(res)
@@ -171,12 +196,13 @@ class gridmap():
             if len(group)>self.robot_size:
                 mean_x = sum([x[0] for x in group])/len(group)
                 mean_y = sum([y[1] for y in group])/len(group)
-                frontier_map[int(mean_x),int(mean_y)] = 0.5
+                # frontier_map[int(mean_x),int(mean_y)] = 0.5
                 mean = [int(mean_x),int(mean_y)]
                 mean = self.grid2xyz(mean)
                 dis = self.get_distance(cpos,mean)
                 distances.append(dis)
                 filter_by_size.append(mean)
+        del groups,img_gray_recolor,img_gray,edges
         if len(distances)>0:
             sort_index = np.argsort(np.asarray(distances))
             return filter_by_size,sort_index

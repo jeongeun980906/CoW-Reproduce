@@ -29,7 +29,8 @@ def normalize(x: np.ndarray) -> np.ndarray:
     return x
 
 class attn2map():
-    def __init__(self,metric_map):
+    def __init__(self,controller,metric_map):
+        self.controller = controller
         self.metric_map = copy.deepcopy(metric_map)
         self.new_map = 1- np.expand_dims(copy.deepcopy(metric_map),axis=-1)
         self.new_map = np.repeat(self.new_map,3,axis=-1)
@@ -44,9 +45,9 @@ class attn2map():
         self.intrinsic = o3d.camera.PinholeCameraIntrinsic(width, height, 
                                 fx, fy, cx, cy)
                                 
-    def get_projection(self,controller,attn,agent_pos,rot):
-        DEPTH = controller.last_event.depth_frame
-        COLOR = controller.last_event.frame
+    def get_projection(self,attn,agent_pos,rot):
+        DEPTH = self.controller.last_event.depth_frame
+        COLOR = self.controller.last_event.frame
 
         attn = 15*attn.astype(np.float32)
         attn = np.clip(attn,0,1)
@@ -91,10 +92,10 @@ class attn2map():
         if rot == 270:
             return np.flip(res,axis=0)
 
-    def transform(self,attn,controller,scenemap,vis=True):
-        agent_pos = controller.last_event.metadata['agent']['position']
-        agent_rot = controller.last_event.metadata['agent']['rotation']['y']
-        res,vpos = self.get_projection(controller,attn,agent_pos,agent_rot)
+    def transform(self,attn,scenemap,vis=True):
+        agent_pos = self.controller.last_event.metadata['agent']['position']
+        agent_rot = self.controller.last_event.metadata['agent']['rotation']['y']
+        _,vpos = self.get_projection(attn,agent_pos,agent_rot)
         for voxel in vpos:
             pos = voxel['pos']
             pos = dict(x=pos[2],y=pos[1],z=pos[0])
@@ -112,6 +113,8 @@ class attn2map():
             del new_map
         if len(vpos)>0:
             return True
+        else:
+            return False
     
     def reset(self):
         self.new_map = 1- np.expand_dims(copy.deepcopy(self.metric_map),axis=-1)
