@@ -15,20 +15,29 @@ from ithor_tools.objects import choose_query_objects
 from RRT import gridmaprrt as rrt
 from FBE.step import step_frontier
 from ithor_tools.store import score_storage
+import random
 
+
+RESUME = False
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_gradcam = clip_grad_cam(device)
 ST = score_storage()
+if RESUME:
+    ST.load_json()
+# scene_names = ['FloorPlan_Train8_1','FloorPlan_Train1_2', 'FloorPlan_Train10_4','FloorPlan_Train9_1','FloorPlan_Train6_2',
+#                 'FloorPlan_Train2_3','FloorPlan_Train5_1']
 
-scene_names = ['FloorPlan_Train1_2', 'FloorPlan_Train10_4','FloorPlan_Train9_1','FloorPlan_Train6_2',
-                'FloorPlan_Train2_3','FloorPlan_Train5_1']
+val = [f"FloorPlan_Val{i}_{j}" for i in range(1,4) for j in range(1,6)]
+# val = ["FloorPlan_Val3_2","FloorPlan_Val3_3","FloorPlan_Val3_4","FloorPlan_Val3_4"]
+scene_names = val
+# scene_names = scene_names[9:]
 for scene_name in scene_names:
     gridSize=0.05
 
     controller = Controller(
         platform = CloudRendering,
         agentMode="locobot",
-        visibilityDistance=2.0,
+        visibilityDistance=2.5,
         scene = scene_name,
         gridSize=gridSize,
         movementGaussianSigma=0,
@@ -70,7 +79,7 @@ for scene_name in scene_names:
 
     controller.step(
         action="Teleport",
-        position = rstate[200],
+        position = rstate[100],
         rotation = dict(x=0,y=270,z=0)
     )
 
@@ -86,7 +95,7 @@ for scene_name in scene_names:
 
         controller.step(
             action="Teleport",
-            position = rstate[200],
+            position = rstate[100],
             rotation = dict(x=0,y=270,z=0)
              )
 
@@ -99,7 +108,10 @@ for scene_name in scene_names:
                 min_length += math.sqrt((last_pos['x']-p['x'])**2+(last_pos['z']-p['z'])**2)
                 last_pos = p
         except:
-            min_length = 0.1
+            print('path error')
+            min_length = 100
+        if min_length==0:
+            min_length+=0.1
 
         query_object_name = query_object['objectType']
 
@@ -113,13 +125,25 @@ for scene_name in scene_names:
             new_query_object_name = query_object_name
         clip_gradcam.set_text(new_query_object_name)
         
-        gt_find = False
+        sucess = False
         total_path_len = 0
-        while gt_find != True:
-            gt_find,sucess,path_len, reset_map  = step_frontier(fbe,rrtplanner,controller,query_object)
+        flag = 0
+        total_path_len = 0
+        while sucess != True:
+            cpos = controller.last_event.metadata['agent']['position']
+            gt_find,find,path_len, reset_map  = step_frontier(fbe,rrtplanner,controller,query_object)
+            sucess = gt_find*find
             total_path_len += path_len
+            npos = controller.last_event.metadata['agent']['position']
+            if math.sqrt((cpos['x']-npos['x'])**2+(cpos['z']-npos['z'])**2) < 0.1:
+                reset_map = True
+                flag +=1
+            else:
+                flag = 0
+            if flag>4:
+                break
             if reset_map:
-                # proj.reset()
+                proj.reset()
                 fbe.reset()
             if total_path_len>50:
                 break

@@ -6,7 +6,9 @@ import cv2
 import copy
 from FBE.union import UnionFind
 from ithor_tools.utils import step_local_search,check_vis
-
+from ai2thor.util.metrics import (
+    get_shortest_path_to_point
+)
 def to_rad(th):
     return th*math.pi / 180
     
@@ -19,7 +21,7 @@ class gridmap():
         self.clip_gradcam = clip_gradcam
         self.proj = proj
         self.scenemap = scenemap
-        self.robot_size = 5
+        self.robot_size = 3
         scenebound = np.asarray(scenebound)
         x_max, z_max = np.max(scenebound,axis=0)
         x_min, z_min  = np.min(scenebound,axis=0)
@@ -61,9 +63,10 @@ class gridmap():
         #     )
         img= self.controller.last_event.frame
         attn,_ = self.clip_gradcam.run(img,vis=False)
-        find = self.proj.transform(attn,self.scenemap,vis=False)
+        find,local_goal = self.proj.transform(attn,self.scenemap,vis=False)
         del attn, img
-        return find       
+        return find ,local_goal     
+
     def reset(self):
         self.map = np.ones((self.w_quan,self.h_quan,3))/2
 
@@ -117,16 +120,22 @@ class gridmap():
         del voxel_grid,voxels,pcd
         return temp_map,[self.xyz2grid(min_bound),self.xyz2grid(max_bound)]
 
-    def scan_full(self,query_object_ID):
+    def scan_full(self,query_object):
         pos = self.controller.last_event.metadata['agent']['position']
         bounds = []
+        local_goals = []
         temp_map = np.ones((self.w_quan,self.h_quan,3))/2
         grid_pos = self.xyz2grid(pos)
         temp_map, bound = self.scan_single(temp_map)
-        find = step_local_search(self.controller,self.clip_gradcam,self.proj,self.scenemap)
-        gt_find = check_vis(self.controller,query_object_ID,False)
-        if gt_find:
-            return temp_map,gt_find,find
+        find,local_goal = step_local_search(self.controller,self.clip_gradcam,self.proj,self.scenemap)
+        gt_find = check_vis(self.controller,query_object,False)
+        
+        if local_goal != None:
+            local_goals.append(local_goal)
+
+        if gt_find and find:
+            return temp_map,local_goals,gt_find,find
+        
         bounds.append(bound)
         temp_map[grid_pos[0],grid_pos[1]] = [1,1,1]
         for _ in range(5):
@@ -134,10 +143,14 @@ class gridmap():
                     action="RotateRight",degrees = 60
                 )
             temp_map,bound = self.scan_single(temp_map)
-            find = step_local_search(self.controller,self.clip_gradcam,self.proj,self.scenemap)
-            gt_find = check_vis(self.controller,query_object_ID,False)
-            if gt_find:
-                return temp_map,gt_find,find
+            find,local_goal = step_local_search(self.controller,self.clip_gradcam,self.proj,self.scenemap)
+            gt_find = check_vis(self.controller,query_object,False)
+            if local_goal != None:
+                local_goals.append(local_goal)
+
+            if gt_find and find:
+                return temp_map,local_goals,gt_find,find
+            
             bounds.append(bound)
         self.controller.step(
                     action="RotateRight",degrees = 60
@@ -165,7 +178,7 @@ class gridmap():
 
         self.merge_map(temp_map)
         del bounds
-        return temp_map,False,False
+        return temp_map,local_goals,False,False
 
     def frontier_detection(self,cpos):
         img_gray = copy.deepcopy(self.map)
@@ -212,7 +225,16 @@ class gridmap():
                 # frontier_map[int(mean_x),int(mean_y)] = 0.5
                 mean = [int(mean_x),int(mean_y)]
                 mean = self.grid2xyz(mean)
-                dis = self.get_distance(cpos,mean)
+                try:
+                    path = get_shortest_path_to_point(self.controller,cpos,mean)
+                    dis = 0
+                    last_pos = cpos
+                    for p in path:
+                        dis += math.sqrt((last_pos['x']-p['x'])**2+(last_pos['z']-p['z'])**2)
+                        last_pos = p
+                except:
+                    dis = 100
+                
                 distances.append(dis)
                 filter_by_size.append(mean)
         del groups,img_gray_recolor,img_gray,edges
@@ -241,27 +263,27 @@ class gridmap():
 
     def ray_x(self,start_pos,temp_map,angle): # -1~1
         sign = [1,2] if angle<0 else [-1,0]
-        x_ = np.arange(start_pos[0]+1,start_pos[0]+2/self.stepsize).astype(np.int16)
+        x_ = np.arange(start_pos[0]+1,start_pos[0]+1.7/self.stepsize).astype(np.int16)
         y_ = ((angle*(x_-start_pos[0]))+start_pos[1]).astype(np.int16)
         # if sum(temp_map[x_[0],y_[0]+sign[0]:y_[0]+sign[1],0]==0)==0:
-        for x,y in zip(x_,y_) or sum(temp_map[x+1:x+2,y,0]==0)>0:
-            if temp_map[x,y,0]==0:
+        for x,y in zip(x_,y_):
+            if temp_map[x,y,0]==0 or sum(temp_map[x+1:x+2,y,0]==0)>0:
                 break
             else:
                 temp_map[x,y] = [1,1,1]
                 
-        x_ = np.arange(start_pos[0]-1,start_pos[0]-2/self.stepsize,-1).astype(np.int16)
+        x_ = np.arange(start_pos[0]-1,start_pos[0]-1.7/self.stepsize,-1).astype(np.int16)
         y_ = ((angle*(x_-start_pos[0]))+start_pos[1]).astype(np.int16)
         if  sum(temp_map[x_[0],y_[0]+1:y_[0]+2,0]==0)==0:
-            for x,y in zip(x_,y_) or sum(temp_map[x-1:x,y,0]==0)>0:
-                if temp_map[x,y,0]==0:
+            for x,y in zip(x_,y_):
+                if temp_map[x,y,0]==0  or sum(temp_map[x-1:x,y,0]==0)>0:
                     break
                 else:
                     temp_map[x,y] = [1,1,1]
         return temp_map
 
     def ray_y(self,start_pos,temp_map,angle): # -1~1
-        y_ = np.arange(start_pos[1]+1,start_pos[1]+2/self.stepsize).astype(np.int16)
+        y_ = np.arange(start_pos[1]+1,start_pos[1]+1.7/self.stepsize).astype(np.int16)
         x_ = ((angle*(y_-start_pos[1]))+start_pos[0]).astype(np.int16)
         if  sum(temp_map[x_[0]+1:x_[0]+2,y_[0],0]==0)==0:
             for x,y in zip(x_,y_):
@@ -270,7 +292,7 @@ class gridmap():
                 else:
                     temp_map[x,y] = [1,1,1]
 
-        y_ = np.arange(start_pos[1]-1,start_pos[1]-2/self.stepsize,-1).astype(np.int16)
+        y_ = np.arange(start_pos[1]-1,start_pos[1]-1.7/self.stepsize,-1).astype(np.int16)
         x_ = ((angle*(y_-start_pos[1]))+start_pos[0]).astype(np.int16)
         for x,y in zip(x_,y_):
             if temp_map[x,y,0]==0 or sum(temp_map[x,y+1:y+2,0]==0)>0:

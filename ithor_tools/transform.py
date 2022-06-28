@@ -56,7 +56,7 @@ class attn2map():
         color = o3d.geometry.Image(attn)
         rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(color, depth,
                                                                     depth_scale=1.0,
-                                                                    depth_trunc=5.0,
+                                                                    depth_trunc=1.5,
                                                                     convert_rgb_to_intensity=False)
         pcd = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd, self.intrinsic)
         pcd.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
@@ -73,7 +73,10 @@ class attn2map():
         # print('voxelization')
         # o3d.visualization.draw_geometries([voxel_grid])
         voxels = voxel_grid.get_voxels()  # returns list of voxels
-        indices = np.stack(list(vx.grid_index for vx in voxels))
+        try:
+            indices = np.stack(list(vx.grid_index for vx in voxels))
+        except:
+            return None,[]
         shape = indices.max(axis=0)
         res = np.zeros((shape[2]+1,shape[0]+1))
         vpos= []
@@ -112,9 +115,13 @@ class attn2map():
             plt.show()
             del new_map
         if len(vpos)>0:
-            return True
+            positions = np.asarray([v['pos'] for v in vpos])
+            # print(positions.shape)
+            mean_position = np.mean(positions,axis=0)
+            # print(mean_position.shape)
+            return True, dict(x=mean_position[2],y=mean_position[1],z=mean_position[0])
         else:
-            return False
+            return False,None
     
     def reset(self):
         self.new_map = 1- np.expand_dims(copy.deepcopy(self.metric_map),axis=-1)
